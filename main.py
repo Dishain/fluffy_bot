@@ -37,7 +37,7 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "7798669926:AAHyGpiKprJgcRt1OBY0WsznO6c0yjnsp94"
 
 # URL вашего Railway проекта
-PROJECT_URL = os.environ.get("RAILWAY_STATIC_URL", "https://your-app-name.up.railway.app")
+PROJECT_URL = os.environ.get("RAILWAY_STATIC_URL", "https://web-production-c09e9.up.railway.app")
 
 # Локализация сообщений для русского (ru), украинского (uk) и английского (en).
 messages = {
