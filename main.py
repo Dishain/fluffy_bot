@@ -97,9 +97,6 @@ inline_buttons_text = {
 # Глобальная переменная для хранения приложения бота
 application = None
 
-# Очередь для хранения асинхронных задач
-update_queue = []
-
 def get_user_language(update: Update) -> str:
     """Определяем язык пользователя по его настройкам в Telegram."""
     user_lang = update.effective_user.language_code
@@ -252,11 +249,7 @@ def ping():
 @app.route(f'/webhook/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
 def webhook():
     """Обработчик вебхуков от Telegram"""
-    global application, update_queue
-    
-    # Убеждаемся, что приложение инициализировано
-    if not application:
-        init_app()
+    global application
     
     try:
         logger.info("Получен вебхук запрос")
@@ -267,9 +260,19 @@ def webhook():
             
             # Создаем новый event loop для обработки обновления
             def process_update(update_data):
-                asyncio.set_event_loop(asyncio.new_event_loop())
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Инициализируем приложение, если оно не инициализировано
+                if not application:
+                    loop.run_until_complete(init_app())
+                elif not application.initialized:
+                    loop.run_until_complete(application.initialize())
+                
+                # Обрабатываем обновление
                 update = Update.de_json(update_data, application.bot)
-                asyncio.run(application.process_update(update))
+                loop.run_until_complete(application.process_update(update))
+                loop.close()
             
             # Запускаем обработку в отдельном потоке
             threading.Thread(target=process_update, args=(update_data,), daemon=True).start()
@@ -287,8 +290,8 @@ def webhook():
 @app.route('/set_webhook')
 def set_webhook():
     """Устанавливает вебхук для бота"""
-    # URL для вебхука
-    webhook_url = f"{PROJECT_URL}/webhook/{TELEGRAM_BOT_TOKEN}"
+    # URL для вебхука с полным URL, включая https
+    webhook_url = f"https://web-production-c09e9.up.railway.app/webhook/{TELEGRAM_BOT_TOKEN}"
     
     # Удаляем предыдущий вебхук
     delete_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/deleteWebhook"
@@ -297,10 +300,6 @@ def set_webhook():
     # Устанавливаем новый вебхук
     api_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/setWebhook"
     response = requests.post(api_url, json={'url': webhook_url})
-    
-    # Инициализируем приложение, если оно еще не инициализировано
-    if not application:
-        init_app()
     
     # Получаем информацию о вебхуке
     webhook_info = requests.get(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getWebhookInfo").json()
@@ -316,7 +315,7 @@ def webhook_status():
     
     return f"Статус вебхука: {response.json()}"
 
-def init_app():
+async def init_app():
     """Инициализация приложения Telegram бота"""
     global application
     logger.info("Инициализация приложения бота...")
@@ -327,14 +326,21 @@ def init_app():
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     
-    # Инициализируем
-    application.bot
+    # Важно: правильно инициализируем приложение
+    await application.initialize()
     
     logger.info("Приложение бота инициализировано")
     return application
 
 # Инициализация приложения при запуске
-init_app()
+def initialize_bot():
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(init_app())
+    loop.close()
+
+# Запускаем инициализацию в отдельном потоке
+threading.Thread(target=initialize_bot, daemon=True).start()
 
 # Получаем порт из переменных окружения
 port = int(os.environ.get("PORT", 8080))
