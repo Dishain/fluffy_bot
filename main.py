@@ -3,6 +3,7 @@ import logging
 import tempfile
 import threading
 import asyncio
+import time
 from flask import Flask, request, jsonify
 from telegram import (
     Update,
@@ -22,6 +23,7 @@ import yt_dlp
 import json
 import traceback
 import requests
+import re
 
 # Настройка логирования
 logging.basicConfig(
@@ -115,6 +117,151 @@ def get_user_language(update: Update) -> str:
 def t(key: str, lang: str) -> str:
     """Возвращает локализованное сообщение по ключу для заданного языка."""
     return messages.get(key, {}).get(lang, messages[key]['en'])
+
+def download_tiktok_alternative(url: str) -> str:
+    """Скачивает видео из TikTok через альтернативный сервис без водяного знака."""
+    logger.info(f"Попытка скачать TikTok видео без водяного знака: {url}")
+    
+    try:
+        # Метод 1: ИспользованиеMusicalDown API
+        api_url = "https://musicaldown.com/api/post"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://musicaldown.com/',
+            'Origin': 'https://musicaldown.com'
+        }
+        data = {'link': url, 'submit': ''}
+        
+        response = requests.post(api_url, headers=headers, data=data, allow_redirects=True)
+        
+        if response.status_code == 200:
+            # Ищем ссылку на видео без водяного знака
+            no_watermark_url = re.search(r'href=[\'"]?([^\'" >]+).*?Download Server 1', response.text)
+            
+            if no_watermark_url:
+                download_url = no_watermark_url.group(1)
+                
+                # Скачиваем видео
+                video_response = requests.get(download_url, stream=True)
+                if video_response.status_code == 200:
+                    # Сохраняем видео во временный файл
+                    temp_path = os.path.join("/tmp", f"tiktok_{int(time.time())}.mp4")
+                    with open(temp_path, 'wb') as f:
+                        for chunk in video_response.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                f.write(chunk)
+                    logger.info(f"Видео без водяного знака успешно скачано (метод 1): {temp_path}")
+                    return temp_path
+        
+        # Метод 2: Использование SnapTik API
+        api_url = "https://api.snaptik.app/video-info"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://snaptik.app/'
+        }
+        params = {'url': url}
+        
+        response = requests.get(api_url, headers=headers, params=params)
+        
+        if response.status_code == 200:
+            json_data = response.json()
+            
+            if json_data.get('code') == 0 and 'data' in json_data:
+                # Найдем ссылку без водяного знака
+                no_watermark_url = None
+                for video in json_data['data'].get('videos', []):
+                    if video.get('watermark') is False:
+                        no_watermark_url = video.get('url')
+                        break
+                
+                if not no_watermark_url:
+                    # Если не нашли ссылку без водяного знака, берем любую
+                    for video in json_data['data'].get('videos', []):
+                        if video.get('url'):
+                            no_watermark_url = video.get('url')
+                            break
+                
+                if no_watermark_url:
+                    # Скачиваем видео
+                    video_response = requests.get(no_watermark_url, stream=True)
+                    if video_response.status_code == 200:
+                        # Сохраняем видео во временный файл
+                        temp_path = os.path.join("/tmp", f"tiktok_{int(time.time())}.mp4")
+                        with open(temp_path, 'wb') as f:
+                            for chunk in video_response.iter_content(chunk_size=1024 * 1024):
+                                if chunk:
+                                    f.write(chunk)
+                        logger.info(f"Видео без водяного знака успешно скачано (метод 2): {temp_path}")
+                        return temp_path
+        
+        # Метод 3: Использование SSSTik API
+        api_url = "https://ssstik.io/api/v1/download"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://ssstik.io/',
+            'Origin': 'https://ssstik.io',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        data = {'url': url, 'hd': '1', 'watermark': '0', 'tt': '0'}
+        
+        response = requests.post(api_url, headers=headers, data=data)
+        
+        if response.status_code == 200:
+            # Ищем ссылку на видео без водяного знака в HTML-ответе
+            download_url = re.search(r'href=[\'"]?([^\'" >]+mp4[^\'" >]*)', response.text)
+            
+            if download_url:
+                download_url = download_url.group(1)
+                
+                # Скачиваем видео
+                video_response = requests.get(download_url, stream=True)
+                if video_response.status_code == 200:
+                    # Сохраняем видео во временный файл
+                    temp_path = os.path.join("/tmp", f"tiktok_{int(time.time())}.mp4")
+                    with open(temp_path, 'wb') as f:
+                        for chunk in video_response.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                f.write(chunk)
+                    logger.info(f"Видео без водяного знака успешно скачано (метод 3): {temp_path}")
+                    return temp_path
+        
+        # Метод 4: Использование TikMate API
+        tikmate_url = "https://tikmate.app/api/lookup"
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Referer': 'https://tikmate.app/',
+            'Origin': 'https://tikmate.app',
+            'Content-Type': 'application/x-www-form-urlencoded'
+        }
+        data = {'url': url}
+        
+        response = requests.post(tikmate_url, headers=headers, data=data)
+        
+        if response.status_code == 200:
+            json_data = response.json()
+            
+            if 'success' in json_data and json_data['success'] and 'id' in json_data:
+                video_id = json_data['id']
+                download_url = f"https://tikmate.app/download/{video_id}/mp4/nowm/1"
+                
+                # Скачиваем видео
+                video_response = requests.get(download_url, stream=True)
+                if video_response.status_code == 200:
+                    # Сохраняем видео во временный файл
+                    temp_path = os.path.join("/tmp", f"tiktok_{int(time.time())}.mp4")
+                    with open(temp_path, 'wb') as f:
+                        for chunk in video_response.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                f.write(chunk)
+                    logger.info(f"Видео без водяного знака успешно скачано (метод 4): {temp_path}")
+                    return temp_path
+        
+        # Если все методы не сработали, возвращаем ошибку
+        raise Exception("Не удалось скачать видео без водяного знака")
+    
+    except Exception as e:
+        logger.error(f"Ошибка при скачивании видео без водяного знака: {e}")
+        raise
 
 def download_video(url: str, is_tiktok: bool = False) -> str:
     """Скачивает видео по заданной ссылке с помощью yt-dlp."""
@@ -211,11 +358,20 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     await update.message.reply_text(t('processing', lang))
     
     try:
-        video_path = download_video(user_text, is_tiktok=is_tiktok)
-        
         if is_tiktok:
-            logger.info("Запуск процедуры удаления водяного знака для TikTok")
-            video_path = remove_tiktok_watermark(video_path)
+            # Для TikTok используем альтернативный метод, который удаляет водяной знак
+            try:
+                video_path = download_tiktok_alternative(user_text)
+                logger.info("Видео TikTok успешно скачано без водяного знака")
+            except Exception as e:
+                logger.error(f"Ошибка при скачивании TikTok без водяного знака: {e}")
+                # Если альтернативный метод не сработал, пробуем стандартный
+                video_path = download_video(user_text, is_tiktok=True)
+                logger.info("Запуск процедуры удаления водяного знака для TikTok")
+                video_path = remove_tiktok_watermark(video_path)
+        else:
+            # Для других платформ используем стандартный метод
+            video_path = download_video(user_text, is_tiktok=False)
         
         # Создаём инлайн-кнопку "Поблагодарить автора" (локализованную)
         donate_text = inline_buttons_text['donate_author'][lang]
