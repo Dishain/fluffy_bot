@@ -266,8 +266,13 @@ def webhook():
                 # Инициализируем приложение, если оно не инициализировано
                 if not application:
                     loop.run_until_complete(init_app())
-                elif not application.initialized:
-                    loop.run_until_complete(application.initialize())
+                else:
+                    # Пробуем инициализировать, если не инициализировано
+                    try:
+                        loop.run_until_complete(application.initialize())
+                    except Exception as e:
+                        # Игнорируем ошибку, если приложение уже инициализировано
+                        logger.info(f"Приложение уже инициализировано или ошибка: {e}")
                 
                 # Обрабатываем обновление
                 update = Update.de_json(update_data, application.bot)
