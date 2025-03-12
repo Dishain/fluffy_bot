@@ -24,6 +24,7 @@ import json
 import traceback
 import requests
 import re
+import uuid
 
 # Настройка логирования
 logging.basicConfig(
@@ -265,11 +266,6 @@ def download_tiktok_alternative(url: str) -> str:
 
 def download_tiktok_direct(url: str) -> str:
     """Скачивает видео из TikTok прямым методом через библиотеку requests."""
-    import time
-    import re
-    import json
-    import uuid
-    
     logger.info(f"Попытка скачать TikTok видео прямым методом: {url}")
     
     try:
@@ -592,4 +588,4 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                     logger.info("Видео TikTok успешно скачано альтернативным методом")
                 except Exception as e2:
                     logger.error(f"Ошибка при альтернативном скачивании TikTok: {e2}")
-                    # Если и это не сработало, пробуем стандартный метод
+                    # Если
