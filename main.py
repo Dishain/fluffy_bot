@@ -94,8 +94,10 @@ inline_buttons_text = {
     }
 }
 
-# Глобальная переменная для хранения приложения бота
+# Глобальные переменные
 application = None
+event_loop = None
+updates_queue = asyncio.Queue()
 
 def get_user_language(update: Update) -> str:
     """Определяем язык пользователя по его настройкам в Telegram."""
@@ -235,6 +237,55 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         logger.error(f"Ошибка при обработке ссылки: {e}", exc_info=True)
         await update.message.reply_text(t('error', lang))
 
+# Асинхронный обработчик обновлений
+async def process_updates():
+    """Обрабатывает обновления из очереди"""
+    global application, updates_queue
+    
+    logger.info("Запущен обработчик обновлений")
+    
+    while True:
+        try:
+            # Получаем обновление из очереди
+            update_data = await updates_queue.get()
+            
+            # Обрабатываем обновление
+            update = Update.de_json(update_data, application.bot)
+            await application.process_update(update)
+            
+            # Помечаем задачу как выполненную
+            updates_queue.task_done()
+        except Exception as e:
+            logger.error(f"Ошибка при обработке обновления: {e}", exc_info=True)
+        
+        # Небольшая пауза, чтобы не загружать CPU
+        await asyncio.sleep(0.1)
+
+# Инициализация бота и запуск обработчика обновлений
+async def setup_bot():
+    """Инициализирует бота и запускает обработчик обновлений"""
+    global application, event_loop
+    
+    logger.info("Инициализация приложения бота...")
+    
+    # Инициализируем приложение
+    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+    
+    # Регистрируем обработчики
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("menu", menu_command))
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    
+    # Инициализируем приложение
+    await application.initialize()
+    
+    logger.info("Приложение бота инициализировано")
+    
+    # Запускаем обработчик обновлений
+    asyncio.create_task(process_updates())
+    
+    logger.info("Обработчик обновлений запущен")
+
 # Маршрут для домашней страницы
 @app.route('/')
 def home():
@@ -249,7 +300,7 @@ def ping():
 @app.route(f'/webhook/{TELEGRAM_BOT_TOKEN}', methods=['POST'])
 def webhook():
     """Обработчик вебхуков от Telegram"""
-    global application
+    global updates_queue, event_loop
     
     try:
         logger.info("Получен вебхук запрос")
@@ -258,29 +309,8 @@ def webhook():
             update_data = request.json
             logger.info(f"Получены данные обновления: {update_data.get('update_id', 'unknown')}")
             
-            # Создаем новый event loop для обработки обновления
-            def process_update(update_data):
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                
-                # Инициализируем приложение, если оно не инициализировано
-                if not application:
-                    loop.run_until_complete(init_app())
-                else:
-                    # Пробуем инициализировать, если не инициализировано
-                    try:
-                        loop.run_until_complete(application.initialize())
-                    except Exception as e:
-                        # Игнорируем ошибку, если приложение уже инициализировано
-                        logger.info(f"Приложение уже инициализировано или ошибка: {e}")
-                
-                # Обрабатываем обновление
-                update = Update.de_json(update_data, application.bot)
-                loop.run_until_complete(application.process_update(update))
-                loop.close()
-            
-            # Запускаем обработку в отдельном потоке
-            threading.Thread(target=process_update, args=(update_data,), daemon=True).start()
+            # Добавляем обновление в очередь
+            asyncio.run_coroutine_threadsafe(updates_queue.put(update_data), event_loop)
             
             return jsonify({"status": "success", "message": "Update queued for processing"})
         else:
@@ -320,46 +350,33 @@ def webhook_status():
     
     return f"Статус вебхука: {response.json()}"
 
-async def init_app():
-    """Инициализация приложения Telegram бота"""
-    global application
-    logger.info("Инициализация приложения бота...")
-    application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+# Функция для запуска event loop
+def run_event_loop():
+    """Запускает и поддерживает event loop"""
+    global event_loop
     
-    # Регистрируем обработчики
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("menu", menu_command))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    # Создаем новый event loop
+    event_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(event_loop)
     
-    # Важно: правильно инициализируем приложение
-    await application.initialize()
+    # Запускаем инициализацию бота
+    event_loop.run_until_complete(setup_bot())
     
-    logger.info("Приложение бота инициализировано")
-    return application
-
-# Инициализация приложения при запуске
-def initialize_bot():
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(init_app())
-    loop.close()
-
-# Запускаем инициализацию в отдельном потоке
-threading.Thread(target=initialize_bot, daemon=True).start()
+    # Запускаем event loop вечно
+    try:
+        event_loop.run_forever()
+    except Exception as e:
+        logger.error(f"Ошибка в event loop: {e}", exc_info=True)
+    finally:
+        event_loop.close()
 
 # Получаем порт из переменных окружения
 port = int(os.environ.get("PORT", 8080))
 
+# Запускаем event loop в отдельном потоке
+loop_thread = threading.Thread(target=run_event_loop, daemon=True)
+loop_thread.start()
+
 if __name__ == "__main__":
     # Запускаем Flask приложение
     app.run(host='0.0.0.0', port=port)
-
-# В функцию init_app добавьте:
-logger.info("Начинаем инициализацию приложения...")
-# После инициализации:
-logger.info("Приложение успешно инициализировано!")
-
-# В функцию initialize_bot добавьте:
-logger.info("Запускаем инициализацию бота в отдельном потоке...")
-# После запуска loop:
-logger.info("Завершена инициализация бота в отдельном потоке")
